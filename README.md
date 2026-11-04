@@ -45,7 +45,7 @@ config.json (presets: elements, sensors, per-zone PID gains, geometry)
 
 ## Representative code
 
-The control step is deliberately small. The two clamps are the design: the integral is bounded so a long saturated warm-up cannot wind it up, and the output is bounded to what a duty cycle can express. Everything else (which zone, which gains, which setpoint) comes from the config, so the loop body never changes when the enclosure does.
+The control step is deliberately small. The two clamps are the design: the integral is bounded so a long saturated warm-up cannot wind it up, and the output is bounded to what a duty cycle can express. Everything else (which zone, which gains, which setpoint) comes from the config, so the loop body never changes when the tool does.
 
 ```python
 # PID control function with anti-windup
