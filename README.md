@@ -4,11 +4,11 @@
 
 ## The problem I wanted to solve
 
-A heated enclosure with one heater and one thermostat gives you a hot spot and cold corners. I wanted an even temperature field across a volume, so the controller drives **four heating elements, each with its own temperature sensor and its own PID loop**. The configuration places the elements in space (one above the centre, three in a triangle lower down) and gives each zone its own setpoint, so the geometry can be compensated rather than averaged away.
+The target was a semi-spherical aluminium tool intended for composite enclosure fabrication. One heater and one thermostat on a shape like that gives you a hot spot and cold corners. I wanted an even temperature field across the tool, so the controller drives **four heating elements, each with its own temperature sensor and its own PID loop**. The configuration places the elements in space (one above the centre, three in a triangle lower down) and gives each zone its own setpoint, so the geometry can be compensated rather than averaged away.
 
 ## Demonstration
 
-No Phidget hardware is attached to the machine I ran this on, so the demonstration runs the **real `pid_control()` function** (extracted from the script by AST, not retyped) against a simulated first-order thermal plant per zone, with the real `config.json` gains and setpoints and the real one-second loop.
+The controller was built and commissioned in 2024 on that tool, with all four Phidget heater outputs and temperature sensors connected and checked. That bench is not set up at the moment, so the demonstration below runs the **real `pid_control()` function** (extracted from the script by AST, not retyped) against a simulated first-order thermal plant per zone, with the real `config.json` gains and setpoints and the real one-second loop. The traces show how the controller behaves, not how the tool did.
 
 ![Four zones converging on their setpoints](assets/evenheat-sim-annotated.png)
 
@@ -31,7 +31,7 @@ config.json (presets: elements, sensors, per-zone PID gains, geometry)
         └─ rich table on the terminal
 ```
 
-- **Mine:** the whole controller and its configuration (one Python script and one JSON file, written in PyCharm in late 2024).
+- **Mine:** the whole controller and its configuration (one Python script and one JSON file, written in PyCharm in late 2024 and run on the tool with the Phidget devices connected).
 - **Agent assistance:** none in the control logic. In October 2026 a Claude Code session reviewed the code, packaged it as a git repository with a sensible `.gitignore`, and wrote the documentation; in November 2026 it produced this summary and the simulation above.
 
 ## What works today, what remains experimental
@@ -39,7 +39,7 @@ config.json (presets: elements, sensors, per-zone PID gains, geometry)
 | Works | Experimental or missing |
 |---|---|
 | Per-zone PID with anti-windup, output as PWM duty cycle | The spatial model: element positions, `heatmap_bounds` and `temperature_scale` are in the config but nothing renders a heat map yet |
-| Preset selection from the command line | Data logging is defined but never called, so the gains have not been tuned on recorded runs |
+| Preset selection from the command line | Data logging is defined but never called, so no recorded run of the tool exists to re-tune the gains against |
 | Live terminal table with temperature, setpoint, duty, integral and derivative per zone | No safety layer independent of the script (over-temperature cutoff, sensor-fault handling, watchdog) |
 | Clean shutdown closes every Phidget channel | The loop assumes exactly 1 s per iteration; the derivative acts on raw error and kicks on setpoint changes |
 
@@ -68,4 +68,4 @@ for unit in config["units"]:
     heating_elements_by_index[idx].setDutyCycle(duty_cycle)
 ```
 
-The next engineering step is obvious from the simulation: add `dt` to the loop and a derivative on measurement rather than on error, then tune against a recorded run of the real enclosure.
+The next engineering step is obvious from the simulation: add `dt` to the loop and a derivative on measurement rather than on error, then re-tune against a recorded run once the tool is back on the bench.
