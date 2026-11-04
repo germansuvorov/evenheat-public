@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EvenHeat four-zone PID</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;700&family=IBM+Plex+Sans:wght@400;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+<header class="page">
+  <p class="eyebrow">Project summary · 2026-11-01 · working repository kept private</p>
+  <h1>EvenHeat: four-zone PID heating with Phidgets</h1>
+  <p class="lede">One Python script and one JSON file drive four heating elements, each with its own sensor and PID loop, so a heated enclosure holds an even temperature instead of one hot spot.</p>
+</header>
+
+<section>
+<h2>The problem I wanted to solve</h2>
+<p>A heated enclosure with one heater and one thermostat gives you a hot spot and cold corners. I wanted an even temperature field across a volume, so the controller drives four heating elements, each paired with its own temperature sensor and its own PID loop. The configuration places the elements in space (one above the centre, three in a triangle lower down) and gives each zone its own setpoint, so the geometry is compensated rather than averaged away.</p>
+</section>
+
+<section>
+<h2>Demonstration</h2>
+<p>No Phidget hardware is attached to the machine this ran on, so the demonstration runs the real <code>pid_control()</code> function (extracted from the script by AST, not retyped) against a simulated first-order thermal plant per zone, with the real <code>config.json</code> gains and setpoints and the real one-second loop.</p>
+<figure>
+  <img src="assets/evenheat-sim-annotated.png" alt="Four zone temperatures rising to 50, 45, 30 and 30 degrees and holding; duty cycles below">
+  <figcaption>25 simulated minutes. Top: zone temperatures against their dashed setpoints. Bottom: the duty cycle each loop commands.</figcaption>
+</figure>
+<ol class="callouts">
+  <li>Every zone starts saturated at 100 % duty: a 30 °C error times Kp = 0.1 is already past the 0–1 output clamp.</li>
+  <li>Once the error is small the integral term carries the steady-state duty (about 0.37 for the 50 °C zone). The ±10 anti-windup clamp bounds how far the integral can run during the saturated warm-up.</li>
+  <li>All four zones settle within ±0.2 °C of their setpoints and stay there.</li>
+</ol>
+<figure>
+  <img src="assets/evenheat-table.svg" alt="Terminal table with unit, temperature, setpoint, duty cycle, integral, derivative and relay state for four zones">
+  <figcaption>What the operator sees: the table the script redraws every second, here 7 minutes into the simulated run.</figcaption>
+</figure>
+</section>
+
+<section>
+<h2>Architecture and my contribution</h2>
+<pre class="arch">config.json  (presets: elements, sensors, per-zone PID gains, geometry)
+   └─ evenheat.py
+        ├─ Phidget22 VINT hub, port 0: 4 × DigitalOutput   (heaters, PWM duty cycle)
+        ├─ Phidget22 VINT hub, port 5: 4 × TemperatureSensor
+        ├─ 1 s loop: read 4 temperatures → 4 × PID → 4 duty cycles
+        └─ rich table on the terminal</pre>
+<ul>
+  <li><strong>Mine:</strong> the whole controller and its configuration, one Python script and one JSON file, written in PyCharm in late 2024.</li>
+  <li><strong>Agent assistance:</strong> none in the control logic. In October 2026 a Claude Code session reviewed the code, packaged it as a git repository with a sensible ignore list and wrote the documentation; in November 2026 it produced this summary and the simulation above.</li>
+</ul>
+</section>
+
+<section>
+<h2>What works today, what remains experimental</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Status</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr><td class="ok"></td><td>Per-zone PID with anti-windup, output as a PWM duty cycle.</td></tr>
+    <tr><td class="ok"></td><td>Preset selection from the command line; gains and setpoints per zone in the config.</td></tr>
+    <tr><td class="ok"></td><td>Live terminal table with temperature, setpoint, duty, integral and derivative per zone; clean shutdown closes every channel.</td></tr>
+    <tr><td class="exp"></td><td>The spatial model: element positions, heat-map bounds and temperature scale are in the config, but nothing renders a heat map yet.</td></tr>
+    <tr><td class="exp"></td><td>Data logging is defined but never called, so the gains have not been tuned on recorded runs of the real enclosure.</td></tr>
+    <tr><td class="exp"></td><td>No safety layer independent of the script: no over-temperature cutoff, sensor-fault handling or watchdog.</td></tr>
+    <tr><td class="exp"></td><td>The loop assumes exactly 1 s per iteration; the derivative acts on raw error and kicks on setpoint changes.</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section>
+<h2>Representative code</h2>
+<p>The control step is deliberately small. The two clamps are the design: the integral is bounded so a long saturated warm-up cannot wind it up, and the output is bounded to what a duty cycle can express. Everything else (which zone, which gains, which setpoint) comes from the config, so the loop body never changes when the enclosure does.</p>
+<pre><code># PID control function with anti-windup
+def pid_control(setpoint, current_temp, prev_error, integral, Kp, Ki, Kd):
+    error = setpoint - current_temp
+    integral += error
+    integral = max(-10.0, min(10.0, integral))  # Anti-windup
+    derivative = error - prev_error
+    output = max(0, min(1, Kp * error + Ki * integral + Kd * derivative))
+    return output, error, integral
+
+# ... inside the 1 s loop: one independent controller per configured unit
+for unit in config["units"]:
+    idx = unit["index"]
+    setpoint = unit["setpoint"]
+    Kp, Ki, Kd = unit["Kp"], unit["Ki"], unit["Kd"]
+    duty_cycle, prev_errors[idx], integrals[idx] = pid_control(
+        setpoint, current_temps[idx], prev_errors[idx], integrals[idx], Kp, Ki, Kd
+    )
+    heating_elements_by_index[idx].setDutyCycle(duty_cycle)</code></pre>
+<p class="note">The next engineering step is visible in the simulation: add a real <code>dt</code> to the loop and take the derivative on the measurement rather than on the error, then tune against a recorded run of the real enclosure.</p>
+</section>
+
+<footer>Summary and simulation prepared with Claude Code on 2026-11-01. The repository stays private; the excerpts above are the author's own code.</footer>
+</main>
+</body>
+</html>
